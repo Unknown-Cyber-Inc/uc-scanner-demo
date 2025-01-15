@@ -1,0 +1,23 @@
+{
+  "name": "npm-scanner-demo",
+  "version": "1.0.0",
+  "description": "Demo project for npm-package-scanner - shows package evolution over time",
+  "main": "index.js",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --outfile=dist/bundle.js",
+    "test": "echo \"Tests passed\""
+  },
+  "dependencies": {
+    "esbuild": "0.24.2",
+    "lodash": "4.17.21",
+    "source-map": "0.7.4"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "demo",
+    "npm-scanner",
+    "security"
+  ],
+  "author": "UnknownCyber",
+  "license": "MIT"
+}

@@ -1,0 +1,136 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - run: npm install
+      
+      - name: Scan npm packages
+        uses: Unknown-Cyber-Inc/npm-package-scanner@main
+        id: scan
+        with:
+          upload: 'true'
+          deep-scan: 'true'
+          include-all-files: 'true'
+          yara-scan: 'true'
+          api-key: ${{ secrets.UC_API_KEY }}
+
+      - name: Scan Summary
+        if: always()
+        run: |
+          echo "## 🔍 NPM Package Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Packages Scanned" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Packages with binaries | ${{ steps.scan.outputs.total-packages }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Binary files found | ${{ steps.scan.outputs.total-binaries }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ☁️ Upload Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Uploaded | ${{ steps.scan.outputs.upload-successful }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⏭️ Skipped (existing) | ${{ steps.scan.outputs.upload-skipped }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | ${{ steps.scan.outputs.upload-failed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Parse detailed findings from results
+          if [ -f "binary-scan-results.json" ]; then
+            echo "### 🛡️ Security Findings" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract findings using Node.js
+            node -e "
+              const fs = require('fs');
+              const results = JSON.parse(fs.readFileSync('binary-scan-results.json', 'utf8'));
+              const reps = results.uploadResults?.reputations || [];
+              
+              const high = reps.filter(r => r.reputation?.overallThreatLevel === 'high');
+              const medium = reps.filter(r => r.reputation?.overallThreatLevel === 'medium');
+              const caution = reps.filter(r => r.reputation?.overallThreatLevel === 'caution');
+              
+              let output = '';
+              
+              if (high.length > 0) {
+                output += '#### 🔴 High Severity\n';
+                output += '| File | Issue |\n|------|-------|\n';
+                high.forEach(r => {
+                  const issues = [];
+                  if (r.reputation?.av?.threatLevel === 'high') issues.push('AV: ' + r.reputation.av.detected + '/' + r.reputation.av.total);
+                  if (r.reputation?.similarity?.threatLevel === 'high') issues.push('Similarity: ' + r.reputation.similarity.score);
+                  output += '| ' + r.file + ' | ' + issues.join(', ') + ' |\n';
+                });
+                output += '\n';
+              }
+              
+              if (medium.length > 0) {
+                output += '#### 🟠 Medium Severity\n';
+                output += '| File | Issue |\n|------|-------|\n';
+                medium.forEach(r => {
+                  const issues = [];
+                  if (r.reputation?.av?.threatLevel === 'medium') issues.push('AV: ' + r.reputation.av.detected + '/' + r.reputation.av.total);
+                  if (r.reputation?.similarity?.threatLevel === 'medium') issues.push('Similarity: ' + r.reputation.similarity.score);
+                  output += '| ' + r.file + ' | ' + issues.join(', ') + ' |\n';
+                });
+                output += '\n';
+              }
+              
+              if (caution.length > 0) {
+                output += '#### 🟡 Caution\n';
+                output += '| File | Issue |\n|------|-------|\n';
+                caution.forEach(r => {
+                  const issues = [];
+                  if (r.reputation?.signature?.threatLevel === 'caution') issues.push('Unsigned binary');
+                  if (r.reputation?.av?.threatLevel === 'caution') issues.push('AV: ' + r.reputation.av.detected + '/' + r.reputation.av.total);
+                  output += '| ' + r.file + ' | ' + issues.join(', ') + ' |\n';
+                });
+                output += '\n';
+              }
+              
+              if (high.length === 0 && medium.length === 0 && caution.length === 0) {
+                output += '✅ No security issues detected\n';
+              }
+              
+              console.log(output);
+            " >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # YARA findings
+          if [ -f "yara-results.json" ]; then
+            node -e "
+              const fs = require('fs');
+              const results = JSON.parse(fs.readFileSync('yara-results.json', 'utf8'));
+              
+              if (results.results && results.results.length > 0) {
+                let output = '### 🔎 YARA Matches\n';
+                output += '| File | Rule | Severity |\n|------|------|----------|\n';
+                results.results.forEach(r => {
+                  r.matches.forEach(m => {
+                    const sev = m.meta?.severity || 'unknown';
+                    const icon = sev === 'critical' || sev === 'high' ? '🔴' : sev === 'medium' ? '🟠' : '🟡';
+                    output += '| ' + r.file.split('/').slice(-2).join('/') + ' | ' + m.rule + ' | ' + icon + ' ' + sev + ' |\n';
+                  });
+                });
+                console.log(output);
+              }
+            " >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+          fi
+
+      - name: Fail on threats
+        if: (steps.scan.outputs.threats-found != '0' && steps.scan.outputs.threats-found != '') || (steps.scan.outputs.yara-high-severity != '0' && steps.scan.outputs.yara-high-severity != '')
+        run: |
+          echo "::error::Security issues detected! Threats: ${{ steps.scan.outputs.threats-found }}, YARA high severity: ${{ steps.scan.outputs.yara-high-severity }}"
+          exit 1
