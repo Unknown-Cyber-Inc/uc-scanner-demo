@@ -43,7 +43,7 @@ jobs:
       # Inject malware samples for testing
       # Triggered by: workflow_dispatch checkbox OR commit message containing 'infected'
       - name: Inject malware test samples
-        uses: Unknown-Cyber-Inc/npm-package-scanner/malware-test-inject@feature/malware-test-injection
+        uses: Unknown-Cyber-Inc/npm-package-scanner/malware-test-inject@main
         if: ${{ inputs.inject-malware || contains(github.event.head_commit.message, 'infected') }}
         with:
           api-key: ${{ secrets.UC_API_KEY }}
