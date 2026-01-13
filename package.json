@@ -1,5 +1,5 @@
 {
-  "name": "npm-scanner-demo",
+  "name": "uc-scanner-demo",
   "version": "3.0.0",
   "description": "Demo project for uc-software-scan - shows package evolution over time",
   "main": "index.js",
